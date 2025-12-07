@@ -42,6 +42,46 @@ format_pval_short <- function(p) {
   suppressWarnings(ifelse(is.na(p), NA, ifelse(p < 0.001, "<0.001", format.pval(p, digits = 3))))
 }
 
+# Save plot with version archive
+save_with_version <- function(plot, filename, path) {
+  timestamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
+
+  # Save latest (overwrites)
+  ggsave(file.path(path, filename), plot, width = 10, height = 9, dpi = 300)
+
+  # Save versioned archive
+  archive_dir <- file.path(path, "archive")
+  dir.create(archive_dir, showWarnings = FALSE)
+
+  versioned_name <- paste0(
+    tools::file_path_sans_ext(filename), "_", timestamp, ".",
+    tools::file_ext(filename)
+  )
+  ggsave(file.path(archive_dir, versioned_name), plot, width = 10, height = 9, dpi = 300)
+
+  cat("Saved:", filename, "(archived as", versioned_name, ")\n")
+}
+
+# Save CSV with version archive
+save_csv_with_version <- function(data, filename, path) {
+  timestamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
+
+  # Save latest (overwrites)
+  write_csv2(data, file.path(path, filename))
+
+  # Save versioned archive
+  archive_dir <- file.path(path, "archive")
+  dir.create(archive_dir, showWarnings = FALSE)
+
+  versioned_name <- paste0(
+    tools::file_path_sans_ext(filename), "_", timestamp, ".",
+    tools::file_ext(filename)
+  )
+  write_csv2(data, file.path(archive_dir, versioned_name))
+
+  cat("Saved:", filename, "(archived as", versioned_name, ")\n")
+}
+
 calculate_hematotox <- function(plt, anc, hb, crp, ferritin) {
 
   score <- 0
@@ -641,13 +681,7 @@ plot_survival_trajectory <- function(fit, df, outcome_name, time_var, event_var,
   combined_plot <- plot_grid(p$plot, p$table, ncol = 1, rel_heights = c(3, 1))
 
   dir.create(output_path, recursive = TRUE, showWarnings = FALSE)
-  ggsave(
-    file.path(output_path, paste0(file_prefix, "_km_plot.png")),
-    plot = combined_plot,
-    width = 10, height = 9, dpi = 300
-  )
-
-  cat("Plot saved:", file_prefix, "_km_plot.png\n")
+  save_with_version(combined_plot, paste0(file_prefix, "_km_plot.png"), output_path)
 
   return(list(logrank_p = logrank_p, summary_stats = summary_stats))
 }
@@ -681,8 +715,7 @@ pooled_export <- bind_rows(
   pfs_pooled %>% mutate(outcome = "PFS"),
   os_pooled %>% mutate(outcome = "OS")
 )
-write_csv2(pooled_export, file.path(output_path, "mice_pooled_cox_results.csv"))
-cat("Exported: mice_pooled_cox_results.csv\n")
+save_csv_with_version(pooled_export, "mice_pooled_cox_results.csv", output_path)
 
 # Export imputation diagnostics
 mice_summary <- data.frame(
@@ -691,8 +724,7 @@ mice_summary <- data.frame(
   method = "pmm",
   n_datasets = imp_nr
 )
-write_csv2(mice_summary, file.path(output_path, "mice_imputation_summary.csv"))
-cat("Exported: mice_imputation_summary.csv\n")
+save_csv_with_version(mice_summary, "mice_imputation_summary.csv", output_path)
 
 # Export patient lists by group (from first imputation)
 for (grp in levels(df_analysis_plot$trajectory_group)) {
@@ -701,8 +733,7 @@ for (grp in levels(df_analysis_plot$trajectory_group)) {
     select(record_id, baseline_group, ht_score_d14, d14_group, trajectory_group)
 
   grp_filename <- paste0("trajectory_mice_", gsub("/", "_", grp), "_patients.csv")
-  write_csv2(grp_data, file.path(output_path, grp_filename))
-  cat("Exported:", grp_filename, "- n =", nrow(grp_data), "\n")
+  save_csv_with_version(grp_data, grp_filename, output_path)
 }
 
 # ============================================
@@ -728,10 +759,12 @@ cat("  Cox regression run on each imputed dataset\n")
 cat("  Results pooled using Rubin's rules\n")
 cat("  Survival curves from representative dataset\n\n")
 
-cat("OUTPUT FILES:\n")
+cat("OUTPUT FILES (latest versions):\n")
 cat("  - km_pfs_mice_imputed_km_plot.png\n")
 cat("  - km_os_mice_imputed_km_plot.png\n")
 cat("  - mice_pooled_cox_results.csv\n")
 cat("  - mice_imputation_summary.csv\n")
 cat("  - trajectory_mice_*_patients.csv (4 files)\n")
 cat("\nOutput directory:", output_path, "\n")
+cat("Archive directory:", file.path(output_path, "archive"), "\n")
+cat("  (Timestamped versions saved automatically)\n")
