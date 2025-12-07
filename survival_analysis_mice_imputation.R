@@ -422,8 +422,13 @@ process_imputed_dataset <- function(imp_data, df_main) {
       imp_data %>% select(record_id, plt_d14, anc_d14, hb_d14, crp_d14, ferritin_d14),
       by = "record_id"
     ) %>%
+    # Use rowwise() instead of mapply() to avoid scoping issues with dplyr
+    rowwise() %>%
     mutate(
-      ht_score_d14 = mapply(calculate_hematotox, plt_d14, anc_d14, hb_d14, crp_d14, ferritin_d14),
+      ht_score_d14 = calculate_hematotox(plt_d14, anc_d14, hb_d14, crp_d14, ferritin_d14)
+    ) %>%
+    ungroup() %>%
+    mutate(
       d14_group = case_when(
         ht_score_d14 >= 3 ~ "high",
         ht_score_d14 <= 2 ~ "low",
