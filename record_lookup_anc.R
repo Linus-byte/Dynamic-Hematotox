@@ -12,6 +12,7 @@ library(readr)
 # Define file paths
 master_file <- "/Users/linus/Library/Mobile Documents/com~apple~CloudDocs/10 AG Rejeski/Paper/Eosinophile_ SS/master_lmu_06_11_2025.csv"
 lab_file <- "/Users/linus/Library/Mobile Documents/com~apple~CloudDocs/10 AG Rejeski/Paper/Eosinophile_ SS/lab_export.csv"
+eosinophils_file <- "/Users/linus/Library/Mobile Documents/com~apple~CloudDocs/10 AG Rejeski/Paper/Eosinophile_ SS/eosinophils abs_continous.csv"
 output_dir <- "/Users/linus/Library/Mobile Documents/com~apple~CloudDocs/10 AG Rejeski/Paper/Eosinophile_ SS"
 output_file <- file.path(output_dir, "absolute_neutrophil_count.csv")
 
@@ -24,26 +25,47 @@ days_numeric <- c(-90, -60, -30, -21, -14, -5, 0, 3, 7, 14, 21,
 # Tolerance window for matching (±3 days)
 tolerance <- 3
 
-# Step 1: Read master file and extract record_ids for bnhl_x identifiers
-cat("Reading master file...\n")
+# Step 1: Read eosinophils file to get entity_ids from row 1 (column headers)
+cat("Reading eosinophils file to extract entity_ids...\n")
+eosinophils_headers <- names(read_csv(eosinophils_file, n_max = 0, show_col_types = FALSE))
+
+# Extract entity_ids (bnhl_x identifiers) - exclude Time and days columns
+entity_ids <- eosinophils_headers[!eosinophils_headers %in% c("Time", "days")]
+cat(sprintf("Found %d entity_ids in eosinophils file: %s\n",
+            length(entity_ids),
+            paste(head(entity_ids, 10), collapse = ", ")))
+if (length(entity_ids) > 10) {
+  cat(sprintf("... and %d more\n", length(entity_ids) - 10))
+}
+
+# Step 2: Read master file and match entity_id to record_id
+cat("\nReading master file...\n")
 master_data <- read_csv(master_file, show_col_types = FALSE)
 
-# Find columns that contain bnhl_ identifiers
-# Assuming there's a column with bnhl_x values or the record_id corresponds to bnhl_x
-# We need to create a mapping of record_id to bnhl_id
-cat("Extracting record_id to bnhl mapping...\n")
-
-# Create mapping: record_id corresponds to bnhl_{record_id}
+# Match entity_ids to record_ids
+cat("Matching entity_ids to record_ids...\n")
 record_to_bnhl <- master_data %>%
-  select(record_id) %>%
+  filter(entity_id %in% entity_ids) %>%
+  select(record_id, entity_id) %>%
   distinct() %>%
-  mutate(bnhl_id = paste0("bnhl_", record_id)) %>%
-  filter(!is.na(record_id))
+  filter(!is.na(record_id), !is.na(entity_id)) %>%
+  rename(bnhl_id = entity_id)
 
-cat(sprintf("Found %d unique record IDs\n", nrow(record_to_bnhl)))
+cat(sprintf("Found %d unique record IDs matching entity_ids\n", nrow(record_to_bnhl)))
 
-# Step 2: Read lab export file and filter for relevant record_ids
-cat("Reading lab export file...\n")
+# Check for entity_ids that were not found
+missing_entities <- setdiff(entity_ids, record_to_bnhl$bnhl_id)
+if (length(missing_entities) > 0) {
+  cat(sprintf("WARNING: %d entity_ids from eosinophils file not found in master file:\n",
+              length(missing_entities)))
+  cat(paste(head(missing_entities, 10), collapse = ", "), "\n")
+  if (length(missing_entities) > 10) {
+    cat(sprintf("... and %d more\n", length(missing_entities) - 10))
+  }
+}
+
+# Step 3: Read lab export file and filter for relevant record_ids
+cat("\nReading lab export file...\n")
 lab_data <- read_csv(lab_file, show_col_types = FALSE)
 
 # Filter for relevant record_ids
@@ -56,7 +78,7 @@ cat(sprintf("Found %d lab measurements for %d unique records\n",
             nrow(lab_filtered),
             n_distinct(lab_filtered$record_id)))
 
-# Step 3: Match time points with tolerance window
+# Step 4: Match time points with tolerance window
 cat("\nMatching time points (tolerance = ±", tolerance, "days)...\n")
 
 # Initialize tracking for imputations
@@ -127,11 +149,11 @@ for (i in 1:nrow(record_to_bnhl)) {
   output_data[[bnhl_id]] <- anc_values
 }
 
-# Step 4: Save output file
+# Step 5: Save output file
 cat("\nSaving output to:", output_file, "\n")
 write_csv(output_data, output_file)
 
-# Step 5: Print summary statistics
+# Step 6: Print summary statistics
 cat("\n=== SUMMARY ===\n")
 cat(sprintf("Total records processed: %d\n", nrow(record_to_bnhl)))
 cat(sprintf("Total time points: %d\n", length(days_numeric)))
